@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 /// Base class for commands sent to the LlamaChild isolate
-sealed class LlamaCommand {}
+abstract class LlamaCommand {}
 
 class LlamaStop extends LlamaCommand {}
 

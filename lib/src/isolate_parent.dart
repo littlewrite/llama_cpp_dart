@@ -27,11 +27,9 @@ class _QueuedPrompt {
 }
 
 /// Parent class that manages communication with the LlamaChild isolate
-class LlamaParent {
+class LlamaParent extends IsolateParent<LlamaCommand, LlamaResponse> {
   final StreamController<String> _controller = StreamController<String>.broadcast();
-  final _parent = IsolateParent<LlamaCommand, LlamaResponse>();
 
-  StreamSubscription<LlamaResponse>? _subscription;
   bool _isGenerating = false;
   LlamaStatus _status = LlamaStatus.uninitialized;
   LlamaStatus get status => _status;
@@ -67,28 +65,19 @@ class LlamaParent {
 
   Object? _currentScope;
 
-  LlamaParent(this.loadCommand, [this.formatter]);
+  LlamaParent(this.loadCommand, [this.formatter]) : super();
 
-  Future<void> init() async {
-    _readyCompleter = Completer<void>();
-    _isGenerating = false;
-    _status = LlamaStatus.uninitialized;
-
-    _parent.init();
-    await _subscription?.cancel();
-    _subscription = _parent.stream.listen(_onData);
-
-    await _parent.spawn(LlamaChild());
-
-    await _sendCommand(LlamaInit(Llama.libraryPath), "library initialization");
-
-    _status = LlamaStatus.loading;
-    await _sendCommand(loadCommand, "model loading");
-
-    await _readyCompleter!.future;
+  void _initParent() {
+    // Initialize the parent isolate - this is required by typed_isolate 3.0.0
   }
 
-  void _onData(LlamaResponse data) {
+  @override
+  void init() {
+    _initParent();
+  }
+
+  @override
+  void onData(LlamaResponse data, Object id) {
     if (data.stateData != null) {
       if (_stateCompleter != null && !_stateCompleter!.isCompleted) {
         _stateCompleter!.complete(data.stateData);
@@ -162,10 +151,27 @@ class LlamaParent {
     }
   }
 
+  Future<void> initAsync() async {
+    _readyCompleter = Completer<void>();
+    _isGenerating = false;
+    _status = LlamaStatus.uninitialized;
+
+    // Call the parent's init method
+    _initParent();
+    await spawn(LlamaChild());
+
+    await _sendCommand(LlamaInit(Llama.libraryPath), "library initialization");
+
+    _status = LlamaStatus.loading;
+    await _sendCommand(loadCommand, "model loading");
+
+    await _readyCompleter!.future;
+  }
+
   /// Requests the child to save the VRAM state of a specific scope to RAM.
   Future<Uint8List> saveState(LlamaScope scope) async {
     _stateCompleter = Completer<Uint8List>();
-    _parent.sendToChild(id: 1, data: LlamaSaveState(scope.id));
+    send(data: LlamaSaveState(scope.id), id: 1);
     
     return _stateCompleter!.future.timeout(
       const Duration(seconds: 30),
@@ -194,7 +200,7 @@ class LlamaParent {
 
   Future<void> _sendCommand(LlamaCommand command, String description) async {
     _operationCompleter = Completer<void>();
-    _parent.sendToChild(data: command, id: 1);
+    send(data: command, id: 1);
 
     return await _operationCompleter!.future.timeout(
       Duration(seconds: description == "model loading" ? 60 : 30),
@@ -262,7 +268,7 @@ class LlamaParent {
     _isGenerating = true;
     _status = LlamaStatus.generating;
 
-    _parent.sendToChild(
+    send(
         id: 1,
         data: LlamaPrompt(formattedPrompt, _currentPromptId,
             images: nextPrompt.images, slotId: targetSlotId));
@@ -290,7 +296,7 @@ class LlamaParent {
       throw StateError("Not configured for embeddings.");
     }
     _embeddingsCompleter = Completer();
-    _parent.sendToChild(id: 1, data: LlamaEmbedd(prompt));
+    send(id: 1, data: LlamaEmbedd(prompt));
     return _embeddingsCompleter!.future;
   }
 
@@ -308,8 +314,6 @@ class LlamaParent {
     }
     _promptQueue.clear();
 
-    await _subscription?.cancel();
-
     for (final scope in List.from(_scopes)) {
       await scope.dispose();
     }
@@ -318,11 +322,12 @@ class LlamaParent {
     if (!_controller.isClosed) await _controller.close();
     if (!_completionController.isClosed) await _completionController.close();
 
-    _parent.sendToChild(id: 1, data: LlamaDispose());
+    send(id: 1, data: LlamaDispose());
     
     await Future.delayed(const Duration(milliseconds: 50));
     
-    _parent.dispose();
+    stopListening();
+    killAll();
   }
 
   dynamic getScope() {

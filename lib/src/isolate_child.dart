@@ -10,53 +10,36 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
   Llama? llama;
 
   @override
+  void run() {
+    // This method is required by typed_isolate 3.0.0
+    // The isolate is now ready to receive commands
+  }
+
+  @override
   void onData(LlamaCommand data) {
-    switch (data) {
-      case LlamaStop():
-        _handleStop();
-
-      case LlamaClear():
-        _handleClear();
-
-      case LlamaLoad(
-          :final path,
-          :final modelParams,
-          :final contextParams,
-          :final samplingParams,
-          :final verbose,
-          :final mmprojPath
-        ):
-        _handleLoad(path, modelParams, contextParams, samplingParams, verbose,
-            mmprojPath);
-
-      case LlamaPrompt(
-          :final prompt,
-          :final promptId,
-          :final images,
-          :final slotId
-        ):
-        _handlePrompt(prompt, promptId, images, slotId);
-
-      case LlamaInit(:final libraryPath):
-        _handleInit(libraryPath);
-
-      case LlamaEmbedd(:final prompt):
-        _handleEmbedding(prompt);
-
-      case LlamaDispose():
-        _handleDispose();
-
-      case LlamaSaveState(:final slotId):
-        _handleSaveState(slotId);
-
-      case LlamaLoadState(:final slotId, :final data):
-        _handleLoadState(slotId, data);
-
-      case LlamaLoadSession(:final slotId, :final path):
-        _handleLoadSession(slotId, path);
-
-      case LlamaFreeSlot(:final slotId):
-        _handleFreeSlot(slotId);
+    if (data is LlamaStop) {
+      _handleStop();
+    } else if (data is LlamaClear) {
+      _handleClear();
+    } else if (data is LlamaLoad) {
+      _handleLoad(data.path, data.modelParams, data.contextParams, 
+          data.samplingParams, data.verbose, data.mmprojPath);
+    } else if (data is LlamaPrompt) {
+      _handlePrompt(data.prompt, data.promptId, data.images, data.slotId);
+    } else if (data is LlamaInit) {
+      _handleInit(data.libraryPath);
+    } else if (data is LlamaEmbedd) {
+      _handleEmbedding(data.prompt);
+    } else if (data is LlamaDispose) {
+      _handleDispose();
+    } else if (data is LlamaSaveState) {
+      _handleSaveState(data.slotId);
+    } else if (data is LlamaLoadState) {
+      _handleLoadState(data.slotId, data.data);
+    } else if (data is LlamaLoadSession) {
+      _handleLoadSession(data.slotId, data.path);
+    } else if (data is LlamaFreeSlot) {
+      _handleFreeSlot(data.slotId);
     }
   }
 
@@ -71,7 +54,7 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
   /// Handle stop command
   void _handleStop() {
     shouldStop = true;
-    sendToParent(
+    send(
         LlamaResponse.confirmation(llama?.status ?? LlamaStatus.ready));
   }
 
@@ -81,12 +64,12 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
     if (llama != null) {
       try {
         llama!.clear();
-        sendToParent(LlamaResponse.confirmation(LlamaStatus.ready));
+        send(LlamaResponse.confirmation(LlamaStatus.ready));
       } catch (e) {
-        sendToParent(LlamaResponse.error("Error clearing context: $e"));
+        send(LlamaResponse.error("Error clearing context: $e"));
       }
     } else {
-      sendToParent(LlamaResponse.error("Cannot clear: model not initialized"));
+      send(LlamaResponse.error("Cannot clear: model not initialized"));
     }
   }
 
@@ -107,9 +90,9 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
         verbose: verbose,
         mmprojPath: mmprojPath,
       );
-      sendToParent(LlamaResponse.confirmation(LlamaStatus.ready));
+      send(LlamaResponse.confirmation(LlamaStatus.ready));
     } catch (e) {
-      sendToParent(LlamaResponse.error("Error loading model: $e"));
+      send(LlamaResponse.error("Error loading model: $e"));
     }
   }
 
@@ -118,9 +101,9 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
     try {
       Llama.libraryPath = libraryPath;
       final _ = Llama.lib;
-      sendToParent(LlamaResponse.confirmation(LlamaStatus.uninitialized));
+      send(LlamaResponse.confirmation(LlamaStatus.uninitialized));
     } catch (e) {
-      sendToParent(LlamaResponse.error("Failed to open library: $e"));
+      send(LlamaResponse.error("Failed to open library: $e"));
     }
   }
 
@@ -128,19 +111,19 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
   void _handleEmbedding(String prompt) {
     shouldStop = false;
     if (llama == null) {
-      sendToParent(LlamaResponse.error("Model not initialized"));
+      send(LlamaResponse.error("Model not initialized"));
       return;
     }
     try {
       final embeddings = llama!.getEmbeddings(prompt);
-      sendToParent(LlamaResponse(
+      send(LlamaResponse(
         text: "",
         isDone: true,
         embeddings: embeddings,
         status: LlamaStatus.ready,
       ));
     } catch (e) {
-      sendToParent(LlamaResponse.error("Embedding error: $e"));
+      send(LlamaResponse.error("Embedding error: $e"));
     }
   }
 
@@ -158,9 +141,9 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
 
       final data = llama!.saveState();
 
-      sendToParent(LlamaResponse.stateData(data));
+      send(LlamaResponse.stateData(data));
     } catch (e) {
-      sendToParent(
+      send(
           LlamaResponse.error("Failed to save state for $slotId: $e"));
     }
   }
@@ -171,14 +154,15 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
       try {
         llama!.createSlot(slotId);
       } catch (_) {
+        // Ignore if slot already exists
       }
       llama!.setSlot(slotId);
 
       llama!.loadState(data);
 
-      sendToParent(LlamaResponse.confirmation(LlamaStatus.ready));
+      send(LlamaResponse.confirmation(LlamaStatus.ready));
     } catch (e) {
-      sendToParent(
+      send(
           LlamaResponse.error("Failed to load state for $slotId: $e"));
     }
   }
@@ -189,17 +173,18 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
       try {
         llama!.createSlot(slotId);
       } catch (_) {
+        // Ignore if slot already exists
       }
       llama!.setSlot(slotId);
 
       final success = llama!.loadSession(path);
       if (success) {
-        sendToParent(LlamaResponse.confirmation(LlamaStatus.ready));
+        send(LlamaResponse.confirmation(LlamaStatus.ready));
       } else {
-        sendToParent(LlamaResponse.error("Session file not found or invalid"));
+        send(LlamaResponse.error("Session file not found or invalid"));
       }
     } catch (e) {
-      sendToParent(LlamaResponse.error("Failed to load session $path: $e"));
+      send(LlamaResponse.error("Failed to load session $path: $e"));
     }
   }
 
@@ -207,18 +192,18 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
     if (llama == null) return;
     try {
       llama!.freeSlot(slotId);
-      sendToParent(LlamaResponse.confirmation(LlamaStatus.ready));
+      send(LlamaResponse.confirmation(LlamaStatus.ready));
     } catch (e) {
       // ignore: avoid_print
       print("Warning freeing slot $slotId: $e");
-      sendToParent(LlamaResponse.confirmation(LlamaStatus.ready));
+      send(LlamaResponse.confirmation(LlamaStatus.ready));
     }
   }
 
   Future<void> _sendPrompt(String prompt, String promptId,
       List<LlamaImage>? images, String? slotId) async {
     if (llama == null) {
-      sendToParent(LlamaResponse.error("Model not initialized", promptId));
+      send(LlamaResponse.error("Model not initialized", promptId));
       return;
     }
 
@@ -228,7 +213,7 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
           llama!.createSlot(slotId);
           llama!.setSlot(slotId);
         } catch (e) {
-          sendToParent(
+          send(
               LlamaResponse.error("Slot allocation failed: $e", promptId));
           return;
         }
@@ -236,7 +221,7 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
         llama!.setSlot("default");
       }
 
-      sendToParent(LlamaResponse(
+      send(LlamaResponse(
           text: "",
           isDone: false,
           status: LlamaStatus.generating,
@@ -253,20 +238,20 @@ class LlamaChild extends IsolateChild<LlamaResponse, LlamaCommand> {
 
       await for (final token in tokenStream) {
         if (shouldStop) break;
-        sendToParent(LlamaResponse(
+        send(LlamaResponse(
             text: token,
             isDone: false,
             status: LlamaStatus.generating,
             promptId: promptId));
       }
 
-      sendToParent(LlamaResponse(
+      send(LlamaResponse(
           text: "",
           isDone: true,
           status: LlamaStatus.ready,
           promptId: promptId));
     } catch (e) {
-      sendToParent(
+      send(
           LlamaResponse.error("Generation error: ${e.toString()}", promptId));
     }
   }

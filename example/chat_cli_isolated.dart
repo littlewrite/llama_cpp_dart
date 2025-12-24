@@ -37,7 +37,7 @@ void main() async {
   final llamaParent = LlamaParent(loadCommand);
 
   try {
-    await llamaParent.init();
+    await llamaParent.initAsync();
 
     // Add a timeout to prevent infinite waiting
     int attempts = 0;

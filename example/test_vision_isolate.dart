@@ -24,7 +24,7 @@ Future<void> main() async {
 
   // Create parent and initialize
   final parent = LlamaParent(loadCommand);
-  await parent.init();
+  await parent.initAsync();
 
   // Load image
   final image = LlamaImage.fromFile(File("/Users/adel/Downloads/test-1.jpeg"));

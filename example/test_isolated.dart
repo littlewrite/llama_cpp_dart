@@ -27,7 +27,7 @@ void main() async {
   final llamaParent = LlamaParent(loadCommand);
 
   try {
-    await llamaParent.init();
+    await llamaParent.initAsync();
 
     int i = 0;
     List<String> prompts = [

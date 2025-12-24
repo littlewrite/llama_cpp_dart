@@ -27,7 +27,7 @@ void main() async {
 
   try {
     print("Initializing model...");
-    await llamaParent.init();
+    await llamaParent.initAsync();
     print("Model initialized successfully");
 
     // Create two separate scopes
